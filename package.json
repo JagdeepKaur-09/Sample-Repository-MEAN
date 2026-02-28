@@ -1,0 +1,25 @@
+{
+  "name": "event_pic_finder",
+  "version": "1.0.0",
+  "description": "Find your pictures and images in the event easily.",
+  "keywords": [
+    "Pic",
+    "Finder",
+    "MEAN",
+    "Mongo",
+    "Express",
+    "Angular",
+    "Node"
+  ],
+  "license": "ISC",
+  "author": "Jagdeep Kaur",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "test": "test"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.8",
+    "express": "^5.2.1"
+  }
+}
