@@ -29,6 +29,9 @@ app.use("/api/auth", authRoutes);
 const roomRoutes = require("./routes/rooms");
 app.use("/api/rooms", roomRoutes);
 
+const photoRoutes = require("./routes/photos");
+app.use("/api/photos", photoRoutes);
+
 // Server start
 app.listen(5000, () => {
   console.log("🚀 Server running on http://localhost:5000");
