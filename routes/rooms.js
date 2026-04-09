@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Room = require("../models/Room");
 const crypto = require("crypto");
+const auth = require("../middleware/auth");
 
 // Create a room
 router.post("/create", async (req, res) => {
@@ -22,6 +23,16 @@ router.get("/:roomCode", async (req, res) => {
     const room = await Room.findOne({ roomCode: req.params.roomCode });
     if (!room) return res.status(404).json({ error: "Room not found" });
     res.json(room);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all rooms by organizer
+router.get("/my-rooms", auth, async (req, res) => {
+  try {
+    const rooms = await Room.find({ organizerId: req.user.userId });
+    res.json(rooms);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

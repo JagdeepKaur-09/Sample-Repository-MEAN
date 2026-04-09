@@ -1,0 +1,27 @@
+<nav class="navbar navbar-dark bg-dark px-4">
+  <span class="navbar-brand">EventSnap AI</span>
+  <button class="btn btn-outline-light" (click)="logout()">Logout</button>
+</nav>
+
+<div class="container mt-4">
+  <h3>My Rooms</h3>
+
+  <div class="mb-3">
+    <input #roomName type="text" class="form-control w-25 d-inline" placeholder="Event name">
+    <button class="btn btn-primary ms-2" (click)="createRoom(roomName.value)">Create Room</button>
+  </div>
+
+  <div *ngIf="errorMsg" class="alert alert-danger">{{ errorMsg }}</div>
+
+  <div *ngIf="rooms.length === 0" class="alert alert-info">No rooms yet. Create one above!</div>
+
+  <div class="row">
+    <div class="col-md-4 mb-3" *ngFor="let room of rooms">
+      <div class="card p-3 shadow">
+        <h5>{{ room.eventName }}</h5>
+        <p class="text-muted">Code: {{ room.roomCode }}</p>
+        <small>Status: {{ room.status }}</small>
+      </div>
+    </div>
+  </div>
+</div>

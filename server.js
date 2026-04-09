@@ -5,6 +5,9 @@ require("dotenv").config();
 
 const app = express();
 
+const cors = require("cors");
+app.use(cors({ origin: "http://localhost:4200" }));
+
 // Lets server read JSON data (needed for signup/login later)
 app.use(express.json());
 
