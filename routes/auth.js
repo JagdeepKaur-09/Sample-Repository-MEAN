@@ -35,4 +35,22 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+const auth = require("../middleware/auth");
+const User = require("../models/User");
+
+// Add this route to update face data
+router.post("/register-face", auth, async (req, res) => {
+  try {
+    const { descriptor } = req.body;
+    if (!descriptor || descriptor.length !== 128) {
+      return res.status(400).json({ error: "Invalid face data" });
+    }
+
+    await User.findByIdAndUpdate(req.user.userId, { faceDescriptor: descriptor });
+    res.json({ message: "Face registered successfully!" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 module.exports = router;
