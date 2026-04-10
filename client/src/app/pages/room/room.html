@@ -1,0 +1,33 @@
+<nav class="navbar navbar-dark bg-dark px-4">
+  <span class="navbar-brand">EventSnap AI</span>
+  <button class="btn btn-outline-light" (click)="router.navigate(['/dashboard'])">Dashboard</button>
+</nav>
+
+<div class="container mt-4">
+  <div *ngIf="errorMsg" class="alert alert-danger">{{ errorMsg }}</div>
+
+  <div *ngIf="room">
+    <h3>{{ room.eventName }}</h3>
+    <p class="text-muted">Room Code: {{ room.roomCode }}</p>
+    <p>Status: <span class="badge bg-warning">{{ room.status }}</span></p>
+
+    <hr>
+
+    <h5>Photos ({{ photos.length }})</h5>
+
+    <div *ngIf="photos.length === 0" class="alert alert-info">
+      No photos uploaded yet.
+    </div>
+
+    <div class="row">
+      <div class="col-md-3 mb-3" *ngFor="let photo of photos">
+        <div class="card">
+          <img [src]="photo.cloudinaryUrl" class="card-img-top" style="height: 200px; object-fit: cover;">
+          <div class="card-body p-2 text-center">
+            <a [href]="photo.cloudinaryUrl" target="_blank" class="btn btn-sm btn-outline-primary">Download</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

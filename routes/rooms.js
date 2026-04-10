@@ -5,15 +5,29 @@ const crypto = require("crypto");
 const auth = require("../middleware/auth");
 
 // Create a room
-router.post("/create", async (req, res) => {
-  const { eventName, organizerId } = req.body;
+router.post("/create", auth, async (req, res) => {
+  const { eventName } = req.body;
   try {
     const roomCode = crypto.randomBytes(6).toString("hex");
-    const room = new Room({ eventName, organizerId, roomCode });
+    const room = new Room({ 
+      eventName, 
+      organizerId: req.user.userId,  // ← get from token, not body
+      roomCode 
+    });
     await room.save();
     res.json({ message: "Room created!", roomCode, roomLink: `http://localhost:5000/room/${roomCode}` });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Get all rooms by organizer
+router.get("/my-rooms", auth, async (req, res) => {
+  try {
+    const rooms = await Room.find({ organizerId: req.user.userId });
+    res.json(rooms);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -28,14 +42,5 @@ router.get("/:roomCode", async (req, res) => {
   }
 });
 
-// Get all rooms by organizer
-router.get("/my-rooms", auth, async (req, res) => {
-  try {
-    const rooms = await Room.find({ organizerId: req.user.userId });
-    res.json(rooms);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 module.exports = router;

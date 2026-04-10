@@ -1,0 +1,32 @@
+<nav class="navbar navbar-dark bg-dark px-4">
+  <span class="navbar-brand">EventSnap AI — Upload Photos</span>
+  <button class="btn btn-outline-light" (click)="router.navigate(['/dashboard'])">Back</button>
+</nav>
+
+<div class="container mt-5">
+  <div class="card p-4 shadow col-md-6 mx-auto">
+    <h4 class="mb-4">Upload Event Photos</h4>
+
+    <div class="mb-3">
+      <label>Select Photos</label>
+      <input type="file" class="form-control" multiple accept="image/*" (change)="onFilesSelected($event)">
+    </div>
+
+    <div *ngIf="selectedFiles.length > 0" class="mb-3">
+      <p>{{ selectedFiles.length }} photo(s) selected</p>
+    </div>
+
+    <div *ngIf="uploading" class="mb-3">
+      <p>Uploading... {{ uploadedCount }} / {{ selectedFiles.length }}</p>
+      <div class="progress">
+        <div class="progress-bar" [style.width.%]="(uploadedCount / selectedFiles.length) * 100"></div>
+      </div>
+    </div>
+
+    <div *ngIf="errorMsg" class="alert alert-danger">{{ errorMsg }}</div>
+
+    <button class="btn btn-primary w-100" (click)="uploadPhotos()" [disabled]="uploading">
+      {{ uploading ? 'Uploading...' : 'Upload Photos' }}
+    </button>
+  </div>
+</div>

@@ -11,17 +11,26 @@
     <button class="btn btn-primary ms-2" (click)="createRoom(roomName.value)">Create Room</button>
   </div>
 
-  <div *ngIf="errorMsg" class="alert alert-danger">{{ errorMsg }}</div>
+  <div class="mb-4 mt-2">
+  <input #roomCode type="text" class="form-control w-25 d-inline" placeholder="Enter room code">
+  <button class="btn btn-outline-primary ms-2" 
+    (click)="roomCode.value ? router.navigate(['/room', roomCode.value]) : null">
+    Enter Room
+  </button>
+</div>
+
+<div *ngIf="errorMsg" class="alert alert-danger mt-2">{{ errorMsg }}</div>
 
   <div *ngIf="rooms.length === 0" class="alert alert-info">No rooms yet. Create one above!</div>
 
   <div class="row">
     <div class="col-md-4 mb-3" *ngFor="let room of rooms">
       <div class="card p-3 shadow">
-        <h5>{{ room.eventName }}</h5>
-        <p class="text-muted">Code: {{ room.roomCode }}</p>
-        <small>Status: {{ room.status }}</small>
-      </div>
+  <h5>{{ room.eventName }}</h5>
+  <p class="text-muted">Code: {{ room.roomCode }}</p>
+  <small>Status: {{ room.status }}</small>
+  <button class="btn btn-sm btn-primary mt-2" (click)="router.navigate(['/upload', room._id])">Upload Photos</button>
+</div>
     </div>
   </div>
 </div>
