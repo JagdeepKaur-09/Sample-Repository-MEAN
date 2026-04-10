@@ -1,43 +1,61 @@
-const Queue = require('bull');
-const Photo = require('../models/Photo');
-const canvas = require('canvas');
-const faceapi = require('face-api.js');
+const Queue = require("bull");
+const Photo = require("../models/Photo");
+const canvas = require("canvas");
+const faceapi = require("face-api.js");
+const { Canvas, Image, ImageData } = canvas;
 
-// Connect to Redis
-const imageQueue = new Queue('image-processing', process.env.REDIS_URL || 'redis://127.0.0.1:6379');
+// Patch face-api to use node-canvas
+faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
 
-// The worker: This code runs in the background
+const imageQueue = new Queue(
+  "image-processing",
+  process.env.REDIS_URL || "redis://127.0.0.1:6379"
+);
+
+// Load models once when the worker starts
+let modelsLoaded = false;
+async function ensureModels() {
+  if (modelsLoaded) return;
+  await faceapi.nets.tinyFaceDetector.loadFromDisk("./models");
+  await faceapi.nets.faceLandmark68Net.loadFromDisk("./models");
+  await faceapi.nets.faceRecognitionNet.loadFromDisk("./models");
+  modelsLoaded = true;
+  console.log("✅ Face-api models loaded in queue worker");
+}
+
+// Background worker — processes one job at a time
 imageQueue.process(async (job) => {
   const { photoId, imageUrl } = job.data;
-  
-  try {
-    // 1. Load the image from the URL
-    const img = await canvas.loadImage(imageUrl);
-    // Inside the imageQueue.process function, after await photo.save()
-const io = job.app.get("socketio"); // We'll pass the app instance to the worker
-io.to(roomId).emit("photoProcessed", {
-  photoId: photoId,
-  status: 'processed',
-  url: imageUrl
+
+  await ensureModels();
+
+  // Load image from Cloudinary URL
+  const img = await canvas.loadImage(imageUrl);
+
+  // Run AI face detection
+  const detections = await faceapi
+    .detectAllFaces(img, new faceapi.TinyFaceDetectorOptions())
+    .withFaceLandmarks()
+    .withFaceDescriptors();
+
+  const faceDescriptors = detections.map(d => Array.from(d.descriptor));
+
+  // Update the photo record with face data and mark as processed
+  const photo = await Photo.findByIdAndUpdate(
+    photoId,
+    { faceDescriptors, status: "processed", processedAt: new Date() },
+    { new: true }
+  );
+
+  if (!photo) throw new Error(`Photo not found: ${photoId}`);
+
+  console.log(`✅ Processed photo ${photoId} — ${faceDescriptors.length} face(s) found`);
+  return { status: "completed", facesFound: faceDescriptors.length };
 });
-    // 2. Run AI detection
-    const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions())
-      .withFaceLandmarks()
-      .withFaceDescriptors();
 
-    const faceDescriptors = detections.map(d => Array.from(d.descriptor));
-
-    // 3. Update the database record created during upload
-    await Photo.findByIdAndUpdate(photoId, { 
-      faceDescriptors: faceDescriptors,
-      status: 'processed' 
-    });
-
-    return { status: 'completed', facesFound: faceDescriptors.length };
-  } catch (err) {
-    console.error("Queue Error:", err);
-    throw err;
-  }
+// Log failures
+imageQueue.on("failed", (job, err) => {
+  console.error(`❌ Job ${job.id} failed:`, err.message);
 });
 
 module.exports = imageQueue;

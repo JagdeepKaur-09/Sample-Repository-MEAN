@@ -1,109 +1,89 @@
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
+const PDFDocument = require("pdfkit");
+const axios = require("axios");
 const cloudinary = require("../config/cloudinary");
 const Photo = require("../models/Photo");
 const Room = require("../models/Room");
-const User = require('../models/User');
-const auth = require('../middleware/auth');
-const canvas = require("canvas");
-const faceapi = require("face-api.js");
-const { Canvas, Image, ImageData } = canvas;
-faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
-const imageQueue = require('../queues/imageQueue');
-
-// Add a helper to load models once
-async function loadModels() {
-  await faceapi.nets.tinyFaceDetector.loadFromDisk("./models");
-  await faceapi.nets.faceLandmark68Net.loadFromDisk("./models");
-  await faceapi.nets.faceRecognitionNet.loadFromDisk("./models");
-}
-loadModels();
-// Multer setup - stores file in memory temporarily
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
-
-// Upload photo route
+const User = require("../models/User");
 const auth = require("../middleware/auth");
+const imageQueue = require("../queues/imageQueue");
 
+// Multer — memory storage, images only, 10 MB limit
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/"))
+      return cb(new Error("Only image files are allowed."));
+    cb(null, true);
+  }
+});
+
+// ─── POST /api/photos/upload ──────────────────────────────────────────────────
+// Organizer uploads a photo → saved to Cloudinary → queued for AI processing
 router.post("/upload", auth, upload.single("photo"), async (req, res) => {
   try {
-    // Check if room exists
+    if (!req.file) return res.status(400).json({ error: "No file uploaded." });
+
     const room = await Room.findById(req.body.roomId);
-    if (!room) return res.status(404).json({ error: "Room not found" });
+    if (!room) return res.status(404).json({ error: "Room not found." });
 
-    // Check if logged in user is the organizer
-    if (room.organizerId.toString() !== req.user.userId.toString()) {
-      return res.status(403).json({ error: "Only the room organizer can upload photos" });
-    }
+    if (room.organizerId.toString() !== req.user.userId.toString())
+      return res.status(403).json({ error: "Only the room organizer can upload photos." });
 
-    // 1. Upload to Cloudinary
+    // Upload to Cloudinary
     const result = await new Promise((resolve, reject) => {
-      cloudinary.uploader.upload_stream({ folder: "eventsnap" }, (error, result) => {
-        if (error) reject(error); else resolve(result);
-      }).end(req.file.buffer);
+      cloudinary.uploader.upload_stream(
+        { folder: "eventsnap" },
+        (error, result) => { if (error) reject(error); else resolve(result); }
+      ).end(req.file.buffer);
     });
+    const uploadResult = /** @type {{ secure_url: string }} */ (result);
 
-    // 2. NEW: Detect faces in the uploaded buffer
-    const img = await canvas.loadImage(req.file.buffer);
-    const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions())
-      .withFaceLandmarks()
-      .withFaceDescriptors();
-
-    // 3. Save descriptors as arrays of numbers
-    const faceDescriptors = detections.map(d => Array.from(d.descriptor));
-
+    // Save photo record with status 'processing'
     const photo = new Photo({
       roomId: req.body.roomId,
-      cloudinaryUrl: result.secure_url,
-      faceDescriptors: faceDescriptors, // SAVE THE FACE DATA HERE
-      processedAt: new Date()
+      cloudinaryUrl: uploadResult.secure_url,
+      status: "processing"
     });
-    
     await photo.save();
-    res.json({ message: "Photo uploaded and scanned!", url: result.secure_url });
+
+    // Push to background queue for AI face detection
+    await imageQueue.add({ photoId: photo._id.toString(), imageUrl: uploadResult.secure_url });
+
+    res.json({ message: "Upload started! AI is scanning in the background.", photo });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Get all photos in a room (anyone with room code can view)
-router.get("/:roomId", auth, async (req, res) => {
+// ─── GET /api/photos/download-pdf ────────────────────────────────────────────
+// MUST be before /:roomId to avoid Express matching it as a roomId param
+router.get("/download-pdf", auth, async (req, res) => {
   try {
-    const photos = await Photo.find({ roomId: req.params.roomId });
-    res.json(photos);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    const { images } = req.query;
+    if (!images) return res.status(400).json({ error: "No images provided." });
 
-const PDFDocument = require('pdfkit');
-const axios = require('axios');
-
-// GET /api/photos/download-pdf
-router.get('/download-pdf', auth, async (req, res) => {
-  try {
-    const { images } = req.query; // Expecting a comma-separated string of URLs
-    if (!images) return res.status(400).json({ error: "No images provided" });
-
-    const imageUrls = images.split(',');
+    const imageUrls = images.split(",").filter(Boolean);
     const doc = new PDFDocument({ margin: 30 });
 
-    // Set headers to trigger a file download in the browser
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename=MyEventPhotos.pdf');
-
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=MyEventPhotos.pdf");
     doc.pipe(res);
-    doc.fontSize(25).text('EventSnap AI - Your Gallery', { align: 'center' });
+
+    doc.fontSize(22).text("EventSnap AI — Your Gallery", { align: "center" });
     doc.moveDown();
 
     for (const url of imageUrls) {
       try {
-        const response = await axios.get(url, { responseType: 'arraybuffer' });
-        const buffer = Buffer.from(response.data, 'utf-8');
-        doc.addPage().image(buffer, { fit: [500, 600], align: 'center', valign: 'center' });
-      } catch (err) {
-        console.error("Image fetch failed for URL:", url);
+        const response = await axios.get(url, { responseType: "arraybuffer" });
+        // Use Buffer.from with no encoding — binary data must not be decoded as utf-8
+        const buffer = Buffer.from(response.data);
+        doc.addPage().image(buffer, { fit: [500, 600], align: "center", valign: "center" });
+      } catch (imgErr) {
+        console.error("Image fetch failed:", url, imgErr.message);
       }
     }
 
@@ -113,36 +93,37 @@ router.get('/download-pdf', auth, async (req, res) => {
   }
 });
 
-router.get('/match/:roomId', auth, async (req, res) => {
+// ─── GET /api/photos/match/:roomId ───────────────────────────────────────────
+// MUST be before /:roomId
+router.get("/match/:roomId", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
-    if (!user || !user.faceDescriptor || user.faceDescriptor.length === 0) {
-      return res.status(400).json({ message: "Register your face first!" });
-    }
+    if (!user || !user.faceDescriptor || user.faceDescriptor.length === 0)
+      return res.status(400).json({ error: "Register your face first!" });
 
-    const photos = await Photo.find({ roomId: req.params.roomId });
+    // Only match against fully processed photos
+    const photos = await Photo.find({ roomId: req.params.roomId, status: "processed" });
+    if (photos.length === 0)
+      return res.json({ matches: [], maybe: [] });
+
     const userFace = new Float32Array(user.faceDescriptor);
-    
     const highConfidence = [];
     const lowConfidence = [];
 
     photos.forEach(photo => {
-      let bestDistance = 1.0; // Start with max distance
+      if (!photo.faceDescriptors || photo.faceDescriptors.length === 0) return;
 
+      let bestDistance = 1.0;
       photo.faceDescriptors.forEach(faceData => {
         const photoFace = new Float32Array(faceData);
-        // Calculate Euclidean Distance
         const distance = Math.sqrt(
           userFace.reduce((acc, val, i) => acc + Math.pow(val - photoFace[i], 2), 0)
         );
         if (distance < bestDistance) bestDistance = distance;
       });
 
-      if (bestDistance < 0.45) {
-        highConfidence.push(photo);
-      } else if (bestDistance < 0.6) {
-        lowConfidence.push(photo);
-      }
+      if (bestDistance < 0.45) highConfidence.push(photo);
+      else if (bestDistance < 0.6) lowConfidence.push(photo);
     });
 
     res.json({ matches: highConfidence, maybe: lowConfidence });
@@ -151,33 +132,15 @@ router.get('/match/:roomId', auth, async (req, res) => {
   }
 });
 
-router.post("/upload", auth, upload.single("photo"), async (req, res) => {
+// ─── GET /api/photos/:roomId ──────────────────────────────────────────────────
+// Must be LAST among GET routes to avoid swallowing the specific paths above
+router.get("/:roomId", auth, async (req, res) => {
   try {
-    // 1. Upload to Cloudinary first
-    const result = await new Promise((resolve, reject) => {
-      cloudinary.uploader.upload_stream({ folder: "eventsnap" }, (error, result) => {
-        if (error) reject(error); else resolve(result);
-      }).end(req.file.buffer);
-    });
-
-    // 2. Save the photo record (initially with no face data)
-    const photo = new Photo({
-      roomId: req.body.roomId,
-      cloudinaryUrl: result.secure_url,
-      status: 'processing' // New status field
-    });
-    await photo.save();
-
-    // 3. Push the AI task to the background queue!
-    await imageQueue.add({
-      photoId: photo._id,
-      imageUrl: result.secure_url
-    });
-
-    // 4. Respond to user immediately
-    res.json({ message: "Upload started! AI is scanning in the background.", photo });
+    const photos = await Photo.find({ roomId: req.params.roomId });
+    res.json(photos);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
 module.exports = router;
