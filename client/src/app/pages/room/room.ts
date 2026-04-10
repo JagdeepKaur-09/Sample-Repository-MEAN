@@ -15,6 +15,9 @@ export class RoomComponent implements OnInit {
   photos: any[] = [];
   errorMsg = '';
   isOrganizer = false;
+  roomId: string = ''; 
+  matchedPhotos: any[] = [];
+maybePhotos: any[] = [];
 
   constructor(
     private http: HttpClient,
@@ -22,27 +25,46 @@ export class RoomComponent implements OnInit {
     public router: Router
   ) {}
 
-  ngOnInit() {
+ ngOnInit() {
     const roomCode = this.route.snapshot.paramMap.get('roomCode');
     const token = localStorage.getItem('token');
 
-    // Must be logged in to access room
     if (!token) {
       this.router.navigate(['/login']);
       return;
     }
 
-    // Get room details
     this.http.get<any>(`http://localhost:5000/api/rooms/${roomCode}`, {
       headers: new HttpHeaders({ Authorization: `Bearer ${token}` })
     }).subscribe({
       next: (res) => {
         this.room = res;
+        this.roomId = res._id; // ADD THIS LINE: Save the database ID
         this.loadPhotos(res._id);
       },
-      error: () => this.errorMsg = 'Room not found or invalid room code!'
+      error: () => this.errorMsg = 'Room not found!'
     });
   }
+
+  // Your findMyPhotos function will now work because this.roomId is set!
+findMyPhotos() {
+  this.isMatching = true;
+  const token = localStorage.getItem('token');
+  const headers = new HttpHeaders().set('Authorization', `Bearer ${token}`);
+
+  this.http.get<any>(`http://localhost:5000/api/photos/match/${this.roomId}`, { headers })
+    .subscribe({
+      next: (data) => {
+        this.matchedPhotos = data.matches; // Matches high confidence
+        this.maybePhotos = data.maybe;     // Matches lower confidence
+        this.isMatching = false;
+      },
+      error: () => {
+        this.isMatching = false;
+        alert("Error matching photos.");
+      }
+    });
+}
 
   getHeaders() {
     const token = localStorage.getItem('token');
@@ -57,4 +79,29 @@ export class RoomComponent implements OnInit {
       error: (err) => this.errorMsg = err.error?.error
     });
   }
+
+  // Add this method inside the RoomComponent class
+downloadImage(imageUrl: string, fileName: string) {
+  // We fetch the image as a blob to bypass browser 'open in new tab' behavior
+  this.http.get(imageUrl, { responseType: 'blob' }).subscribe((blob) => {
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName; // This forces the download with a specific name
+    link.click();
+    window.URL.revokeObjectURL(url);
+  });
+}
+
+downloadAll() {
+  this.photos.forEach((photo, index) => {
+    // Adding a slight delay to prevent browser download blocking
+    setTimeout(() => {
+      this.downloadImage(photo.cloudinaryUrl, `Event-${this.room.eventName}-${index + 1}.jpg`);
+    }, index * 200); 
+  });
+}
+
+isMatching = false;
+
 }
