@@ -23,6 +23,8 @@ maybePhotos: any[] = [];
 private socket: any;
 isMatching = false;
 showAll = false;
+isProcessing: boolean = false;
+processedCount: number = 0;
 
   constructor(
     private http: HttpClient,
@@ -161,6 +163,11 @@ async downloadAsPDF() {
   }
 
   doc.save(`${this.room.eventName}-MyPhotos.pdf`);
+}
+
+goToUpload() {
+  console.log("Navigate to upload page");
+  // later you can use router here
 }
 
 // Helper function to handle image data
